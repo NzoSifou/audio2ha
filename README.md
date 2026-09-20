@@ -97,9 +97,23 @@ Le clavier virtuel ne s'ouvre pas au simple passage du focus sur un champ : il f
 par « OK », ce qui ouvre une fenêtre de saisie dédiée. Sans cela le clavier capte les
 touches directionnelles dès l'arrivée sur l'écran.
 
+## Interface
+
+L'application suit le design system **Nocturne** (piste 1b de la maquette) : fond #161826,
+accent blurple #9184D9, menu latéral persistant et une page par sujet — État, Entité,
+Comportement, Journaux.
+
+La maquette est dessinée sur un cadre de 1920 × 1080 px, soit la définition de la TV.
+Celle-ci étant en 320 dpi, **1 px de maquette vaut 0,5 dp** : c'est le rapport utilisé
+pour toutes les valeurs de `ui/theme/Nocturne.kt`.
+
+L'accueil affiche l'état en grand, lisible du canapé, avec des barres d'égaliseur. Ces
+barres sont décoratives : l'API de détection ne donne pas l'amplitude du son (il faudrait
+le micro), elles signalent seulement qu'un flux est en cours.
+
 ## Écran des journaux
 
-Deux catégories, filtrables :
+Rubrique « Journaux », deux catégories filtrables :
 
 - **Changements TV** — détection locale : son qui démarre, son qui s'arrête, avec le détail
   (nombre de flux actifs, usages, `isMusicActive`, origine callback ou relevé).

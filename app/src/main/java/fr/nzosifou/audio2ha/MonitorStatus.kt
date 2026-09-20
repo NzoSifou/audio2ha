@@ -13,6 +13,11 @@ object MonitorStatus {
     private val _audioPlaying = MutableStateFlow(false)
     val audioPlaying: StateFlow<Boolean> = _audioPlaying.asStateFlow()
 
+    private val _detail = MutableStateFlow("")
+
+    /** Dernier relevé de détection, affiché sous l'état géant. */
+    val detail: StateFlow<String> = _detail.asStateFlow()
+
     private val _lastSync = MutableStateFlow("Aucun envoi pour le moment")
     val lastSync: StateFlow<String> = _lastSync.asStateFlow()
 
@@ -27,6 +32,10 @@ object MonitorStatus {
 
     fun setAudioPlaying(value: Boolean) {
         _audioPlaying.value = value
+    }
+
+    fun setDetail(value: String) {
+        _detail.value = value
     }
 
     fun setLastSync(value: String) {

@@ -193,15 +193,30 @@ class AudioMonitorService : Service() {
     private fun initialEvaluate() {
         val configs = audioManager.activePlaybackConfigurations
         val relevant = configs.filter { isRelevant(it) }
-        val playing = relevant.isNotEmpty() || audioManager.isMusicActive
+        val musicActive = audioManager.isMusicActive
+        val playing = relevant.isNotEmpty() || musicActive
         rawPlaying = playing
         committedPlaying = playing
         MonitorStatus.setAudioPlaying(playing)
+        MonitorStatus.setDetail(summarize(relevant, musicActive))
         LogStore.audio(
             if (playing) "État initial : son en cours" else "État initial : aucun son",
             describe(configs, relevant, "démarrage"),
         )
         push(playing, forced = true)
+    }
+
+    /** Résumé court affiché sous l'état géant de l'accueil. */
+    private fun summarize(
+        relevant: List<AudioPlaybackConfiguration>,
+        musicActive: Boolean,
+    ): String = buildString {
+        append(relevant.size).append(if (relevant.size > 1) " flux actifs" else " flux actif")
+        if (relevant.isNotEmpty()) {
+            append(" · usage ")
+            append(relevant.joinToString("/") { usageName(it.audioAttributes.usage) })
+        }
+        append(" · isMusicActive=").append(musicActive)
     }
 
     private fun describe(
@@ -221,8 +236,10 @@ class AudioMonitorService : Service() {
 
     private fun evaluate(configs: List<AudioPlaybackConfiguration>, source: String) {
         val relevant = configs.filter { isRelevant(it) }
-        val playing = relevant.isNotEmpty() || audioManager.isMusicActive
+        val musicActive = audioManager.isMusicActive
+        val playing = relevant.isNotEmpty() || musicActive
         val detail = describe(configs, relevant, source)
+        MonitorStatus.setDetail(summarize(relevant, musicActive))
 
         if (playing == rawPlaying && committedPlaying != null) return
         rawPlaying = playing
