@@ -1,7 +1,6 @@
 package fr.nzosifou.audio2ha
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -13,15 +12,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,12 +49,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import fr.nzosifou.audio2ha.ui.theme.Audio2HATheme
+import fr.nzosifou.audio2ha.ui.theme.Nocturne
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -54,9 +68,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     /**
-     * Incrémenté à chaque reprise de l'activité : sert à redonner le focus à un bouton.
-     * Sans cela un champ de saisie le récupère, le clavier virtuel s'ouvre et les touches
-     * de la télécommande sont tapées dans le champ.
+     * Incrémenté à chaque reprise de l'activité : sert à redonner le focus au menu.
+     * Sans cela un champ le récupère, le clavier virtuel s'ouvre et les touches de
+     * la télécommande sont tapées dedans.
      */
     private var resumeTick by mutableIntStateOf(0)
 
@@ -67,12 +81,11 @@ class MainActivity : ComponentActivity() {
         askNotificationPermission()
         setContent {
             Audio2HATheme {
-                // Surface plutôt que Box : elle fixe aussi la couleur du texte par défaut.
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
+                    color = Nocturne.Bg,
                 ) {
-                    SetupScreen(resumeTick)
+                    AppScreen(resumeTick)
                 }
             }
         }
@@ -91,8 +104,208 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class Section(val label: String, val icon: ImageVector) {
+    ETAT("État", Icons.Default.PlayArrow),
+    ENTITE("Entité", Icons.Default.Home),
+    COMPORTEMENT("Comportement", Icons.Default.Settings),
+    JOURNAUX("Journaux", Icons.Default.List),
+}
+
 @Composable
-private fun SetupScreen(resumeTick: Int) {
+private fun AppScreen(resumeTick: Int) {
+    val ctx = LocalContext.current
+    var section by remember { mutableStateOf(Section.ETAT) }
+    val firstNavItem = remember { FocusRequester() }
+
+    val serverUrl by MonitorStatus.configServer.collectAsState()
+
+    LaunchedEffect(resumeTick) {
+        delay(250)
+        runCatching { firstNavItem.requestFocus() }
+    }
+
+    Row(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .width(Nocturne.RailWidth)
+                .fillMaxHeight()
+                .background(Nocturne.Rail)
+                .padding(vertical = Nocturne.RailPaddingV),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Brand()
+            Spacer(Modifier.height(10.dp))
+            Section.entries.forEachIndexed { index, item ->
+                NavItem(
+                    icon = item.icon,
+                    label = item.label,
+                    selected = section == item,
+                    onClick = { section = item },
+                    modifier = if (index == 0) Modifier.focusRequester(firstNavItem) else Modifier,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            RailFooter(
+                listOf(
+                    Build.MODEL ?: "Android TV",
+                    (serverUrl ?: "serveur local indisponible").removePrefix("http://"),
+                ),
+            )
+        }
+
+        Box(Modifier.fillMaxSize()) {
+            when (section) {
+                Section.ETAT -> EtatPage()
+                Section.ENTITE -> EntitePage()
+                Section.COMPORTEMENT -> ComportementPage()
+                Section.JOURNAUX -> JournauxPage()
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------- état
+
+@Composable
+private fun EtatPage() {
+    val ctx = LocalContext.current
+    val running by MonitorStatus.running.collectAsState()
+    val playing by MonitorStatus.audioPlaying.collectAsState()
+    val lastSync by MonitorStatus.lastSync.collectAsState()
+    val detail by MonitorStatus.detail.collectAsState()
+    val serverUrl by MonitorStatus.configServer.collectAsState()
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(
+                start = Nocturne.ContentPaddingH,
+                end = Nocturne.ContentPaddingH,
+                top = Nocturne.ContentPaddingTop,
+                bottom = Nocturne.ContentPaddingBottom,
+            ),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(5.dp)
+                    .background(
+                        if (running) Nocturne.Accent else Nocturne.TextDim,
+                        androidx.compose.foundation.shape.CircleShape,
+                    ),
+            )
+            SectionLabel(
+                if (running) "Surveillance active" else "Surveillance arrêtée",
+                color = if (running) Nocturne.Accent else Nocturne.TextMuted,
+            )
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(30.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Text(
+                when {
+                    !running -> "En pause"
+                    playing -> "Son en cours"
+                    else -> "Aucun son"
+                },
+                fontSize = Nocturne.HeroSize,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = (-1).sp,
+                color = Nocturne.Text,
+            )
+            // Largeur fixe : étalées sur toute la ligne, les barres deviennent
+            // des tirets espacés au lieu d'un égaliseur.
+            Equalizer(
+                active = running && playing,
+                modifier = Modifier
+                    .width(240.dp)
+                    .height(55.dp)
+                    .padding(bottom = 8.dp),
+            )
+        }
+
+        Text(
+            detail.ifEmpty { "En attente du premier relevé" },
+            fontSize = Nocturne.ValueSize,
+            color = Nocturne.TextSecondary,
+        )
+
+        GradientDivider()
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            InfoCard(
+                label = "Entité",
+                value = Prefs.getEntityId(ctx),
+                hint = Prefs.getFriendlyName(ctx) + " · " +
+                    Prefs.getAreaName(ctx).ifEmpty { "aucune pièce" },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+            InfoCard(
+                label = "Dernier envoi",
+                value = lastSync,
+                hint = Prefs.getBaseUrl(ctx).removePrefix("http://"),
+                valueSize = 15.sp,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+            InfoCard(
+                label = "Configuration à distance",
+                value = (serverUrl ?: "indisponible").removePrefix("http://"),
+                hint = "Collez le token depuis un téléphone",
+                valueColor = Nocturne.AccentSoft,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            TvButton(
+                text = if (running) "Arrêter la surveillance" else "Démarrer la surveillance",
+                icon = if (running) Icons.Default.Close else Icons.Default.PlayArrow,
+                style = TvButtonStyle.Accent,
+                onClick = {
+                    if (running) AudioMonitorService.stop(ctx) else AudioMonitorService.start(ctx)
+                },
+            )
+            TvButton(
+                text = "Renvoyer l'état",
+                icon = Icons.Default.Refresh,
+                onClick = {
+                    AudioMonitorService.send(ctx, AudioMonitorService.ACTION_RESEND)
+                    if (!running) {
+                        LogStore.ha("Renvoi ignoré : la surveillance est arrêtée", error = true)
+                    }
+                },
+            )
+            TvButton(
+                text = "Son de test",
+                icon = Icons.Default.Notifications,
+                onClick = { TestTone.play() },
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------------- entité
+
+@Composable
+private fun EntitePage() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -102,329 +315,314 @@ private fun SetupScreen(resumeTick: Int) {
     var sensorName by remember { mutableStateOf(Prefs.getFriendlyName(ctx)) }
     var entityKind by remember { mutableStateOf(Prefs.getEntityKind(ctx)) }
     var areaName by remember { mutableStateOf(Prefs.getAreaName(ctx)) }
-    var startOnBoot by remember { mutableStateOf(Prefs.isStartOnBoot(ctx)) }
-    var retryCount by remember { mutableStateOf(Prefs.getRetryCount(ctx)) }
-    var retryTimeout by remember { mutableStateOf(Prefs.getRetryTimeoutSeconds(ctx)) }
-    var offlineMode by remember { mutableStateOf(Prefs.getOfflineMode(ctx)) }
-    var onDebounce by remember { mutableStateOf(Prefs.getOnDebounceMs(ctx)) }
-    var offDebounce by remember { mutableStateOf(Prefs.getOffDebounceMs(ctx)) }
-
     var areas by remember { mutableStateOf<List<HaArea>>(emptyList()) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val firstButton = remember { FocusRequester() }
 
-    val running by MonitorStatus.running.collectAsState()
-    val playing by MonitorStatus.audioPlaying.collectAsState()
-    val lastSync by MonitorStatus.lastSync.collectAsState()
-    val serverUrl by MonitorStatus.configServer.collectAsState()
-
-    fun reload() {
-        baseUrl = Prefs.getBaseUrl(ctx)
-        token = Prefs.getToken(ctx)
-        entityId = Prefs.getEntityId(ctx)
-        sensorName = Prefs.getFriendlyName(ctx)
-        entityKind = Prefs.getEntityKind(ctx)
-        areaName = Prefs.getAreaName(ctx)
-        startOnBoot = Prefs.isStartOnBoot(ctx)
-        retryCount = Prefs.getRetryCount(ctx)
-        retryTimeout = Prefs.getRetryTimeoutSeconds(ctx)
-        offlineMode = Prefs.getOfflineMode(ctx)
-        onDebounce = Prefs.getOnDebounceMs(ctx)
-        offDebounce = Prefs.getOffDebounceMs(ctx)
-    }
-
-    // Au premier affichage et à chaque retour dans l'application : on recharge les valeurs
-    // (elles ont pu changer depuis le navigateur) et on place le focus sur un bouton.
-    LaunchedEffect(resumeTick) {
-        reload()
-        delay(250)
-        runCatching { firstButton.requestFocus() }
-    }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 40.dp, vertical = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        Text(
-            "Audio2HA",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-        )
-
-        StatusCard(running, playing, lastSync, serverUrl)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvButton(
-                text = if (running) "Arrêter la surveillance" else "Démarrer la surveillance",
-                primary = true,
-                modifier = Modifier.focusRequester(firstButton),
-                onClick = {
-                    if (running) AudioMonitorService.stop(ctx) else AudioMonitorService.start(ctx)
-                },
-            )
-
-            TvButton(
-                text = if (busy) "Vérification..." else "Appliquer et tester",
-                primary = true,
-                onClick = {
-                    if (busy) return@TvButton
-                    busy = true
-                    message = "Vérification en cours..."
-                    scope.launch {
-                        val text = withContext(Dispatchers.IO) {
-                            val ping = HaClient.ping(
-                                Prefs.getBaseUrl(ctx),
-                                Prefs.getToken(ctx),
-                                Prefs.getRetryTimeoutSeconds(ctx) * 1000,
-                            )
-                            if (!ping.ok) {
-                                LogStore.ha("Test de connexion échoué", ping.shortBody(), error = true)
-                                return@withContext "Échec : " +
-                                    (if (ping.httpCode > 0) "HTTP ${ping.httpCode} " else "") +
-                                    ping.shortBody(120)
+    PageScaffold(
+        header = {
+            PageHeader(
+                title = "Entité publiée",
+                subtitle = "Ce que la TV crée dans Home Assistant",
+            ) {
+                TvButton(
+                    text = if (busy) "Vérification…" else "Appliquer et tester",
+                    icon = Icons.Default.Check,
+                    style = TvButtonStyle.Accent,
+                    small = true,
+                    onClick = {
+                        if (busy) return@TvButton
+                        busy = true
+                        message = "Vérification en cours…"
+                        scope.launch {
+                            val text = withContext(Dispatchers.IO) {
+                                val ping = HaClient.ping(
+                                    Prefs.getBaseUrl(ctx),
+                                    Prefs.getToken(ctx),
+                                    Prefs.getRetryTimeoutSeconds(ctx) * 1000,
+                                )
+                                if (!ping.ok) {
+                                    LogStore.ha("Test de connexion échoué", ping.shortBody(), error = true)
+                                    return@withContext "Échec : " +
+                                        (if (ping.httpCode > 0) "HTTP ${ping.httpCode} " else "") +
+                                        ping.shortBody(120)
+                                }
+                                LogStore.ha("Test de connexion réussi", "HTTP ${ping.httpCode}")
+                                val report = HaSetup.apply(ctx)
+                                (if (report.ok) "OK — " else "Attention — ") + report.message
                             }
-                            LogStore.ha("Test de connexion réussi", "HTTP ${ping.httpCode}")
-                            val report = HaSetup.apply(ctx)
-                            (if (report.ok) "OK — " else "Attention — ") + report.message
+                            entityId = Prefs.getEntityId(ctx)
+                            busy = false
+                            message = text
+                            AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
                         }
-                        reload()
-                        busy = false
-                        message = text
-                        AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
-                    }
-                },
-            )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvButton(
-                text = "Consulter les logs",
-                onClick = { ctx.startActivity(Intent(ctx, LogsActivity::class.java)) },
-            )
-            TvButton(
-                text = "Renvoyer l'état",
-                onClick = {
-                    AudioMonitorService.send(ctx, AudioMonitorService.ACTION_RESEND)
-                    if (!running) LogStore.ha("Renvoi ignoré : la surveillance est arrêtée", error = true)
-                },
-            )
-            TvButton(text = "Jouer un son de test", onClick = { TestTone.play() })
-        }
-
-        message?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (it.startsWith("OK")) MaterialTheme.colorScheme.secondary
-                else MaterialTheme.colorScheme.error,
-            )
-        }
-
-        TvSection("Connexion à Home Assistant") {
-            TvTextField(
-                label = "Adresse de Home Assistant",
-                value = baseUrl,
-                hint = "Les noms .local ne sont pas résolus par Android TV : préférez l'adresse IP.",
-                onValueChange = {
-                    Prefs.saveConfig(ctx, baseUrl = it)
-                    baseUrl = Prefs.getBaseUrl(ctx)
-                },
-            )
-            TvTextField(
-                label = "Token d'accès longue durée",
-                value = token,
-                shortened = true,
-                hint = "Plus simple à coller depuis le navigateur : ${serverUrl ?: "serveur local indisponible"}",
-                onValueChange = {
-                    Prefs.saveConfig(ctx, token = it)
-                    token = Prefs.getToken(ctx)
-                },
-            )
-        }
-
-        TvSection("Entité publiée") {
-            TvTextField(
-                label = "Nom du capteur",
-                value = sensorName,
-                hint = "Nom affiché dans Home Assistant.",
-                onValueChange = {
-                    Prefs.saveConfig(ctx, friendlyName = it)
-                    sensorName = Prefs.getFriendlyName(ctx)
-                },
-            )
-            TvPickerField(
-                label = "Type d'entité",
-                value = entityKind.label,
-                options = EntityKind.entries.toList(),
-                optionLabel = { it.label },
-                hint = "Seul l'interrupteur virtuel peut être rangé dans une pièce.",
-                onSelect = {
-                    Prefs.setEntityKind(ctx, it)
-                    entityKind = it
-                    entityId = Prefs.getEntityId(ctx)
-                },
-            )
-            TvTextField(
-                label = "Identifiant de l'entité",
-                value = entityId,
-                onValueChange = {
-                    Prefs.setEntityId(ctx, it)
-                    entityId = Prefs.getEntityId(ctx)
-                },
-            )
-            TvPickerField(
-                label = "Pièce",
-                value = areaName.ifEmpty { "Aucune pièce" },
-                options = listOf(HaArea("", "Aucune pièce")) + areas,
-                optionLabel = { it.name },
-                hint = "Appliquez ensuite avec « Appliquer et tester ».",
-                emptyMessage = "Liste indisponible : vérifiez l'adresse et le token.",
-                onOpen = {
-                    scope.launch {
-                        val loaded = withContext(Dispatchers.IO) {
-                            HaSetup.listAreas(ctx).getOrElse { emptyList() }
-                        }
-                        if (loaded.isNotEmpty()) areas = loaded
-                    }
-                },
-                onSelect = {
-                    Prefs.setArea(ctx, it.id, if (it.id.isEmpty()) "" else it.name)
-                    areaName = Prefs.getAreaName(ctx)
-                },
-            )
-        }
-
-        TvSection("Comportement") {
-            TvToggleField(
-                label = "Lancer la détection au démarrage de la TV",
-                checked = startOnBoot,
-                hint = "La surveillance redémarre seule après un redémarrage.",
-                onCheckedChange = {
-                    Prefs.setStartOnBoot(ctx, it)
-                    startOnBoot = it
-                },
-            )
-            TvPickerField(
-                label = "Si le réseau est indisponible",
-                value = offlineMode.label,
-                options = OfflineMode.entries.toList(),
-                optionLabel = { it.label },
-                onSelect = {
-                    Prefs.setOfflineMode(ctx, it)
-                    offlineMode = it
-                    AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
-                },
-            )
-            TvTextField(
-                label = "Nombre de nouvelles tentatives",
-                value = retryCount.toString(),
-                numeric = true,
-                hint = "Réessais après un envoi refusé par Home Assistant (0 = aucun).",
-                onValueChange = {
-                    it.trim().toIntOrNull()?.let { v ->
-                        Prefs.setRetryCount(ctx, v)
-                        retryCount = Prefs.getRetryCount(ctx)
-                    }
-                },
-            )
-            TvTextField(
-                label = "Délai d'attente par tentative (secondes)",
-                value = retryTimeout.toString(),
-                numeric = true,
-                onValueChange = {
-                    it.trim().toIntOrNull()?.let { v ->
-                        Prefs.setRetryTimeoutSeconds(ctx, v)
-                        retryTimeout = Prefs.getRetryTimeoutSeconds(ctx)
-                    }
-                },
-            )
-            TvTextField(
-                label = "Délai avant « son démarré » (ms)",
-                value = onDebounce.toString(),
-                numeric = true,
-                onValueChange = {
-                    it.trim().toLongOrNull()?.let { v ->
-                        Prefs.setOnDebounceMs(ctx, v.coerceIn(0, 30_000))
-                        onDebounce = Prefs.getOnDebounceMs(ctx)
-                    }
-                },
-            )
-            TvTextField(
-                label = "Délai avant « son arrêté » (ms)",
-                value = offDebounce.toString(),
-                numeric = true,
-                onValueChange = {
-                    it.trim().toLongOrNull()?.let { v ->
-                        Prefs.setOffDebounceMs(ctx, v.coerceIn(0, 60_000))
-                        offDebounce = Prefs.getOffDebounceMs(ctx)
-                    }
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatusCard(
-    running: Boolean,
-    playing: Boolean,
-    lastSync: String,
-    serverUrl: String?,
-) {
-    val ctx = LocalContext.current
-    Card(Modifier.fillMaxWidth()) {
+                    },
+                )
+            }
+        },
+    ) {
         Column(
-            Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Dot(
-                    when {
-                        !running -> Color(0xFF6E7486)
-                        playing -> Color(0xFF52D07E)
-                        else -> Color(0xFFE0B341)
+            SettingsGroup {
+                TvTextField(
+                    label = "Nom du capteur",
+                    hint = "Nom affiché dans Home Assistant",
+                    value = sensorName,
+                    onValueChange = {
+                        Prefs.saveConfig(ctx, friendlyName = it)
+                        sensorName = Prefs.getFriendlyName(ctx)
                     },
                 )
-                Text(
-                    when {
-                        !running -> "  Surveillance arrêtée"
-                        playing -> "  Son en cours de lecture"
-                        else -> "  Aucun son détecté"
+                ChoiceRow(
+                    label = "Type d'entité",
+                    hint = "Seul l'interrupteur virtuel a une pièce",
+                    options = EntityKind.entries.toList(),
+                    selected = entityKind,
+                    optionTitle = {
+                        if (it == EntityKind.BINARY_SENSOR) "Capteur binaire" else "Interrupteur virtuel"
                     },
-                    style = MaterialTheme.typography.titleMedium,
+                    optionSubtitle = {
+                        if (it == EntityKind.BINARY_SENSOR) "binary_sensor · API REST" else "input_boolean · registre"
+                    },
+                    onSelect = {
+                        Prefs.setEntityKind(ctx, it)
+                        entityKind = it
+                        entityId = Prefs.getEntityId(ctx)
+                    },
+                )
+                TvTextField(
+                    label = "Identifiant de l'entité",
+                    value = entityId,
+                    onValueChange = {
+                        Prefs.setEntityId(ctx, it)
+                        entityId = Prefs.getEntityId(ctx)
+                    },
+                )
+                TvPickerField(
+                    label = "Pièce",
+                    hint = "Lue dans Home Assistant",
+                    value = areaName.ifEmpty { "Aucune pièce" },
+                    options = listOf(HaArea("", "Aucune pièce")) + areas,
+                    optionLabel = { it.name },
+                    emptyMessage = "Liste indisponible : vérifiez l'adresse et le token.",
+                    onOpen = {
+                        scope.launch {
+                            val loaded = withContext(Dispatchers.IO) {
+                                HaSetup.listAreas(ctx).getOrElse { emptyList() }
+                            }
+                            if (loaded.isNotEmpty()) areas = loaded
+                        }
+                    },
+                    onSelect = {
+                        Prefs.setArea(ctx, it.id, if (it.id.isEmpty()) "" else it.name)
+                        areaName = Prefs.getAreaName(ctx)
+                    },
                 )
             }
-            Text(
-                "Dernier envoi : $lastSync",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "Configuration depuis un PC ou un téléphone : " +
-                    (serverUrl ?: "serveur local indisponible"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (!Prefs.isConfigured(ctx)) {
+
+            SettingsGroup("Connexion à Home Assistant") {
+                TvTextField(
+                    label = "Adresse",
+                    hint = "Les noms .local ne sont pas résolus par Android TV",
+                    value = baseUrl,
+                    onValueChange = {
+                        Prefs.saveConfig(ctx, baseUrl = it)
+                        baseUrl = Prefs.getBaseUrl(ctx)
+                    },
+                )
+                TvTextField(
+                    label = "Token longue durée",
+                    hint = "Plus simple à coller depuis le navigateur",
+                    value = token,
+                    shortened = true,
+                    valueColor = Nocturne.AccentSoft,
+                    onValueChange = {
+                        Prefs.saveConfig(ctx, token = it)
+                        token = Prefs.getToken(ctx)
+                    },
+                )
+            }
+
+            message?.let {
                 Text(
-                    "Configuration incomplète : renseignez l'URL, le token et l'entité.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    it,
+                    fontSize = Nocturne.RowLabelSize,
+                    color = if (it.startsWith("OK")) Nocturne.AccentSoft else Nocturne.Danger,
                 )
             }
         }
     }
 }
 
+// -------------------------------------------------------------- comportement
+
 @Composable
-private fun Dot(color: Color) {
-    Box(
-        Modifier
-            .size(12.dp)
-            .background(color, CircleShape),
-    )
+private fun ComportementPage() {
+    val ctx = LocalContext.current
+
+    var startOnBoot by remember { mutableStateOf(Prefs.isStartOnBoot(ctx)) }
+    var offlineMode by remember { mutableStateOf(Prefs.getOfflineMode(ctx)) }
+    var retryCount by remember { mutableStateOf(Prefs.getRetryCount(ctx)) }
+    var retryTimeout by remember { mutableStateOf(Prefs.getRetryTimeoutSeconds(ctx)) }
+    var onDebounce by remember { mutableStateOf(Prefs.getOnDebounceMs(ctx)) }
+    var offDebounce by remember { mutableStateOf(Prefs.getOffDebounceMs(ctx)) }
+
+    PageScaffold(
+        header = {
+            PageHeader(
+                title = "Comportement",
+                subtitle = "Détection du son et envois vers Home Assistant",
+            )
+        },
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingsGroup("Détection") {
+                TvToggleField(
+                    label = "Lancer au démarrage de la TV",
+                    hint = "Relance seule après un redémarrage",
+                    checked = startOnBoot,
+                    onCheckedChange = {
+                        Prefs.setStartOnBoot(ctx, it)
+                        startOnBoot = it
+                    },
+                )
+                TvTextField(
+                    label = "Délai avant « son démarré »",
+                    hint = "Filtre les bips d'interface",
+                    value = "$onDebounce ms",
+                    numeric = true,
+                    onValueChange = {
+                        it.filter(Char::isDigit).toLongOrNull()?.let { v ->
+                            Prefs.setOnDebounceMs(ctx, v.coerceIn(0, 30_000))
+                            onDebounce = Prefs.getOnDebounceMs(ctx)
+                        }
+                    },
+                )
+                TvTextField(
+                    label = "Délai avant « son arrêté »",
+                    hint = "Évite le clignotement entre deux pistes",
+                    value = "$offDebounce ms",
+                    numeric = true,
+                    onValueChange = {
+                        it.filter(Char::isDigit).toLongOrNull()?.let { v ->
+                            Prefs.setOffDebounceMs(ctx, v.coerceIn(0, 60_000))
+                            offDebounce = Prefs.getOffDebounceMs(ctx)
+                        }
+                    },
+                )
+            }
+
+            SettingsGroup("Envois") {
+                TvPickerField(
+                    label = "Si le réseau est indisponible",
+                    hint = "Au moment d'un changement d'état",
+                    value = offlineMode.label,
+                    options = OfflineMode.entries.toList(),
+                    optionLabel = { it.label },
+                    onSelect = {
+                        Prefs.setOfflineMode(ctx, it)
+                        offlineMode = it
+                        AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
+                    },
+                )
+                TvTextField(
+                    label = "Nouvelles tentatives",
+                    hint = "Après une réponse autre que 2xx",
+                    value = retryCount.toString(),
+                    numeric = true,
+                    onValueChange = {
+                        it.filter(Char::isDigit).toIntOrNull()?.let { v ->
+                            Prefs.setRetryCount(ctx, v)
+                            retryCount = Prefs.getRetryCount(ctx)
+                        }
+                    },
+                )
+                TvTextField(
+                    label = "Délai d'attente par tentative",
+                    hint = "Connexion et lecture",
+                    value = "$retryTimeout s",
+                    numeric = true,
+                    onValueChange = {
+                        it.filter(Char::isDigit).toIntOrNull()?.let { v ->
+                            Prefs.setRetryTimeoutSeconds(ctx, v)
+                            retryTimeout = Prefs.getRetryTimeoutSeconds(ctx)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ journaux
+
+private enum class LogFilter(val label: String) {
+    ALL("Tout"),
+    AUDIO("Changements TV"),
+    HA("Envois HA"),
+}
+
+@Composable
+private fun JournauxPage() {
+    val entries by LogStore.entries.collectAsState()
+    var filter by remember { mutableStateOf(LogFilter.ALL) }
+
+    val shown = remember(entries, filter) {
+        when (filter) {
+            LogFilter.ALL -> entries
+            LogFilter.AUDIO -> entries.filter { it.type == LogType.AUDIO }
+            LogFilter.HA -> entries.filter { it.type == LogType.HA }
+        }
+    }
+
+    PageScaffold(
+        header = {
+            PageHeader(
+                title = "Journaux",
+                subtitle = "Détection locale et envois vers Home Assistant",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    LogFilter.entries.forEach { f ->
+                        TvButton(
+                            text = f.label,
+                            small = true,
+                            style = if (f == filter) TvButtonStyle.Accent else TvButtonStyle.Neutral,
+                            onClick = { filter = f },
+                        )
+                    }
+                    TvButton(
+                        text = "Effacer",
+                        icon = Icons.Default.Delete,
+                        small = true,
+                        style = TvButtonStyle.Danger,
+                        onClick = { LogStore.clear() },
+                    )
+                }
+            }
+        },
+    ) {
+        if (shown.isEmpty()) {
+            Text(
+                "Aucun événement pour le moment.",
+                fontSize = Nocturne.RowLabelSize,
+                color = Nocturne.TextMuted,
+            )
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(shown) { entry -> LogCard(entry) }
+            }
+        }
+    }
 }

@@ -36,12 +36,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".LogsActivity"
-            android:exported="false"
-            android:label="@string/logs_title"
-            android:parentActivityName=".MainActivity" />
-
         <service
             android:name=".AudioMonitorService"
             android:exported="false"

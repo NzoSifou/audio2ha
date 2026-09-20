@@ -293,58 +293,112 @@ class ConfigServer(private val ctx: Context) {
             Prefs.getAreaId(ctx),
         )
         val areaNote = if (areas.isEmpty()) {
-            "Liste des pièces indisponible : enregistrez d'abord une adresse et un token valides."
+            "Liste indisponible : enregistrez d'abord une adresse et un token valides."
         } else {
             "Uniquement pris en compte avec l'interrupteur virtuel."
         }
         val bootChecked = if (Prefs.isStartOnBoot(ctx)) " checked" else ""
+        val tokenPlaceholder = if (Prefs.getToken(ctx).isNotEmpty()) {
+            "déjà défini — laisser vide pour conserver"
+        } else {
+            "coller le token ici"
+        }
 
         return """<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Audio2HA - Configuration</title>
+<meta name="theme-color" content="#161826">
+<title>Audio2HA</title>
 <style>
-  body { font-family: system-ui, sans-serif; background:#12141a; color:#e8eaf0; margin:0; padding:24px; }
-  .card { max-width:680px; margin:0 auto; background:#1c1f28; border:1px solid #2c303c; border-radius:12px; padding:24px; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.08em; color:#6fa8ff;
-       margin:26px 0 0; padding-top:18px; border-top:1px solid #2c303c; }
-  p.sub { color:#9aa1b1; margin:0 0 20px; font-size:14px; }
-  label { display:block; margin-top:16px; font-size:13px; color:#9aa1b1; }
-  input, select { width:100%; box-sizing:border-box; margin-top:6px; padding:10px 12px; font-size:14px;
-          background:#12141a; color:#e8eaf0; border:1px solid #333847; border-radius:8px; }
-  input[type=checkbox] { width:auto; margin-right:8px; vertical-align:middle; }
-  button { margin-top:24px; width:100%; padding:12px; font-size:15px; font-weight:600;
-           background:#3d7dff; color:#fff; border:0; border-radius:8px; cursor:pointer; }
-  .row { display:flex; gap:12px; }
-  .row > div { flex:1; }
-  .banner { padding:12px; border-radius:8px; margin-bottom:16px; font-size:14px; }
-  .banner.ok { background:#12331f; border:1px solid #2c6b41; color:#9be8b4; }
-  .banner.err { background:#331616; border:1px solid #6b2c2c; color:#f0a5a5; }
-  .tools { margin-top:20px; font-size:13px; color:#6e7486; }
-  .tools a { color:#6fa8ff; }
-  small { color:#6e7486; display:block; margin-top:6px; font-size:12px; }
+  :root {
+    --bg: #161826; --rail: #1b1d2c; --card: #232532;
+    --accent: #9184d9; --accent-soft: #d2cefd;
+    --text: #e9e9ed; --secondary: #b2b6ca; --muted: #75798c;
+    --danger: #d98a8a; --outline: rgba(233,233,237,.16);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 40px; background: var(--bg); color: var(--text);
+    font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 14px;
+  }
+  .bar {
+    display: flex; align-items: center; gap: 10px; position: sticky; top: 0;
+    padding: 12px 16px; background: var(--rail); color: var(--secondary);
+    font-size: 12px; letter-spacing: .02em;
+  }
+  .bar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  main { max-width: 620px; margin: 0 auto; padding: 22px 16px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .mark {
+    width: 26px; height: 26px; border-radius: 7px; background: rgba(145,132,217,.16);
+    display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding-bottom: 6px;
+  }
+  .mark i { width: 3px; background: var(--accent); border-radius: 1px; }
+  .mark i:nth-child(1) { height: 7px; }
+  .mark i:nth-child(2) { height: 12px; }
+  .mark i:nth-child(3) { height: 9px; }
+  h1 { font-size: 20px; font-weight: 500; margin: 0; letter-spacing: -.015em; }
+  p.sub { color: var(--secondary); margin: 0 0 22px; }
+  h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent);
+    font-weight: 500; margin: 26px 0 12px;
+  }
+  label { display: block; margin-bottom: 14px; font-size: 12px; color: var(--secondary); }
+  input, select {
+    display: block; width: 100%; margin-top: 6px; padding: 10px 12px; font: inherit;
+    font-size: 14px; letter-spacing: .02em; background: var(--card); color: var(--text);
+    border: 1px solid var(--outline); border-radius: 8px; -webkit-appearance: none;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input.filled { border-color: var(--accent); color: var(--accent-soft); }
+  .check { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 14px; }
+  .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  button {
+    margin-top: 26px; width: 100%; height: 48px; font: inherit; font-size: 15px; font-weight: 500;
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+    border-radius: 8px; cursor: pointer;
+  }
+  button:active { background: var(--card); }
+  .row { display: flex; gap: 12px; }
+  .row > * { flex: 1; }
+  .banner {
+    padding: 12px 14px; border-radius: 8px; margin-bottom: 18px;
+    font-size: 13px; line-height: 1.45;
+  }
+  .banner.ok {
+    background: rgba(145,132,217,.12); border: 1px solid var(--accent); color: var(--accent-soft);
+  }
+  .banner.err {
+    background: rgba(217,138,138,.10); border: 1px solid var(--danger); color: var(--danger);
+  }
+  small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+  .tools { margin-top: 26px; font-size: 12px; color: var(--muted); line-height: 2; }
+  .tools a { color: var(--accent); text-decoration: none; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>Audio2HA</h1>
-  <p class="sub">Configuration de ${escape(Build.MODEL ?: "Android TV")}</p>
+<div class="bar"><span class="dot"></span>${escape(localIp())}:${Prefs.CONFIG_SERVER_PORT} · ${escape(Build.MODEL ?: "Android TV")}</div>
+<main>
+  <div class="brand">
+    <span class="mark"><i></i><i></i><i></i></span>
+    <h1>Audio2HA</h1>
+  </div>
+  <p class="sub">Collez ici le token longue durée : le saisir à la télécommande est pénible.</p>
   $banner
   <form method="POST" action="/save">
 
     <h2>Connexion</h2>
     <label>Adresse de Home Assistant
-      <input name="base_url" value="${escape(Prefs.getBaseUrl(ctx))}" placeholder="http://192.168.1.10:8123">
+      <input class="filled" name="base_url" value="${escape(Prefs.getBaseUrl(ctx))}" placeholder="http://192.168.1.10:8123">
+      <small>Préférez l'adresse IP : les noms en .local ne sont pas résolus par Android TV.</small>
     </label>
-    <small>Préférez l'adresse IP : les noms en .local ne sont pas résolus par Android TV.</small>
 
-    <label>Token d'accès longue durée
-      <input name="token" value="" placeholder="${if (Prefs.getToken(ctx).isEmpty()) "coller le token ici" else "(déjà défini - laisser vide pour conserver)"}">
+    <label>Token longue durée
+      <input name="token" value="" placeholder="$tokenPlaceholder">
+      <small>Profil Home Assistant &gt; Sécurité &gt; Jetons d'accès longue durée.</small>
     </label>
-    <small>Profil Home Assistant &gt; Sécurité &gt; Jetons d'accès longue durée.</small>
 
     <h2>Entité</h2>
     <label>Nom du capteur
@@ -353,10 +407,10 @@ class ConfigServer(private val ctx: Context) {
 
     <label>Type d'entité
       <select name="entity_kind">$kindOptions</select>
+      <small>Un binary_sensor créé par l'API REST n'entre pas dans le registre de Home
+      Assistant : il ne peut pas être rangé dans une pièce. L'interrupteur virtuel, lui,
+      est un helper créé par l'application.</small>
     </label>
-    <small>Un binary_sensor créé par l'API REST n'est pas enregistré dans Home Assistant et
-    ne peut donc pas être rangé dans une pièce. L'interrupteur virtuel, lui, est un helper
-    créé par l'application : il est rangeable.</small>
 
     <label>Identifiant de l'entité
       <input name="entity_id" value="${escape(Prefs.getEntityId(ctx))}">
@@ -364,53 +418,46 @@ class ConfigServer(private val ctx: Context) {
 
     <label>Pièce
       <select name="area_id">$areaOptions</select>
+      <small>$areaNote</small>
     </label>
-    <small>$areaNote</small>
 
     <h2>Comportement</h2>
     <input type="hidden" name="start_on_boot" value="0">
-    <label><input type="checkbox" name="start_on_boot" value="1"$bootChecked> Lancer la détection au démarrage de la TV</label>
+    <label class="check"><input type="checkbox" name="start_on_boot" value="1"$bootChecked> Lancer la détection au démarrage de la TV</label>
 
     <label>Si le réseau est indisponible
       <select name="offline_mode">$offlineOptions</select>
+      <small>« Attendre » conserve le dernier changement et le publie dès le retour du réseau.</small>
     </label>
-    <small>« Attendre » conserve le dernier changement et le publie dès le retour du réseau.</small>
 
     <div class="row">
-      <div>
-        <label>Nombre de nouvelles tentatives
-          <input name="retry_count" value="${Prefs.getRetryCount(ctx)}">
-        </label>
-      </div>
-      <div>
-        <label>Délai d'attente par tentative (s)
-          <input name="retry_timeout_s" value="${Prefs.getRetryTimeoutSeconds(ctx)}">
-        </label>
-      </div>
+      <label>Nouvelles tentatives
+        <input name="retry_count" value="${Prefs.getRetryCount(ctx)}" inputmode="numeric">
+      </label>
+      <label>Délai par tentative (s)
+        <input name="retry_timeout_s" value="${Prefs.getRetryTimeoutSeconds(ctx)}" inputmode="numeric">
+      </label>
     </div>
 
     <div class="row">
-      <div>
-        <label>Délai avant « son démarré » (ms)
-          <input name="on_debounce_ms" value="${Prefs.getOnDebounceMs(ctx)}">
-        </label>
-      </div>
-      <div>
-        <label>Délai avant « son arrêté » (ms)
-          <input name="off_debounce_ms" value="${Prefs.getOffDebounceMs(ctx)}">
-        </label>
-      </div>
+      <label>Délai « son démarré » (ms)
+        <input name="on_debounce_ms" value="${Prefs.getOnDebounceMs(ctx)}" inputmode="numeric">
+      </label>
+      <label>Délai « son arrêté » (ms)
+        <input name="off_debounce_ms" value="${Prefs.getOffDebounceMs(ctx)}" inputmode="numeric">
+      </label>
     </div>
 
-    <button type="submit">Enregistrer et appliquer</button>
+    <button type="submit">Enregistrer et tester</button>
   </form>
-  <p class="tools">Outils :
-    <a href="/tone">jouer un son de test</a> ·
-    <a href="/offline?seconds=30">simuler 30 s sans réseau</a> ·
-    <a href="/status">état</a> ·
-    <a href="/players">flux audio détectés</a>
+
+  <p class="tools">
+    <a href="/tone">Jouer un son de test</a> ·
+    <a href="/offline?seconds=30">Simuler 30 s sans réseau</a><br>
+    <a href="/status">État (JSON)</a> ·
+    <a href="/players">Flux audio détectés</a>
   </p>
-</div>
+</main>
 </body>
 </html>"""
     }
