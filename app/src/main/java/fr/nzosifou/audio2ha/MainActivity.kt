@@ -22,7 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,10 +67,10 @@ class MainActivity : ComponentActivity() {
         askNotificationPermission()
         setContent {
             Audio2HATheme {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background),
+                // Surface plutôt que Box : elle fixe aussi la couleur du texte par défaut.
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
                 ) {
                     SetupScreen(resumeTick)
                 }
@@ -99,8 +99,19 @@ private fun SetupScreen(resumeTick: Int) {
     var baseUrl by remember { mutableStateOf(Prefs.getBaseUrl(ctx)) }
     var token by remember { mutableStateOf(Prefs.getToken(ctx)) }
     var entityId by remember { mutableStateOf(Prefs.getEntityId(ctx)) }
-    var testResult by remember { mutableStateOf<String?>(null) }
-    var testing by remember { mutableStateOf(false) }
+    var sensorName by remember { mutableStateOf(Prefs.getFriendlyName(ctx)) }
+    var entityKind by remember { mutableStateOf(Prefs.getEntityKind(ctx)) }
+    var areaName by remember { mutableStateOf(Prefs.getAreaName(ctx)) }
+    var startOnBoot by remember { mutableStateOf(Prefs.isStartOnBoot(ctx)) }
+    var retryCount by remember { mutableStateOf(Prefs.getRetryCount(ctx)) }
+    var retryTimeout by remember { mutableStateOf(Prefs.getRetryTimeoutSeconds(ctx)) }
+    var offlineMode by remember { mutableStateOf(Prefs.getOfflineMode(ctx)) }
+    var onDebounce by remember { mutableStateOf(Prefs.getOnDebounceMs(ctx)) }
+    var offDebounce by remember { mutableStateOf(Prefs.getOffDebounceMs(ctx)) }
+
+    var areas by remember { mutableStateOf<List<HaArea>>(emptyList()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
     val firstButton = remember { FocusRequester() }
 
     val running by MonitorStatus.running.collectAsState()
@@ -108,20 +119,27 @@ private fun SetupScreen(resumeTick: Int) {
     val lastSync by MonitorStatus.lastSync.collectAsState()
     val serverUrl by MonitorStatus.configServer.collectAsState()
 
-    // Au premier affichage et à chaque retour dans l'application : on recharge les valeurs
-    // (elles ont pu changer depuis le navigateur) et on place le focus sur un bouton.
-    LaunchedEffect(resumeTick) {
+    fun reload() {
         baseUrl = Prefs.getBaseUrl(ctx)
         token = Prefs.getToken(ctx)
         entityId = Prefs.getEntityId(ctx)
-        delay(250)
-        runCatching { firstButton.requestFocus() }
+        sensorName = Prefs.getFriendlyName(ctx)
+        entityKind = Prefs.getEntityKind(ctx)
+        areaName = Prefs.getAreaName(ctx)
+        startOnBoot = Prefs.isStartOnBoot(ctx)
+        retryCount = Prefs.getRetryCount(ctx)
+        retryTimeout = Prefs.getRetryTimeoutSeconds(ctx)
+        offlineMode = Prefs.getOfflineMode(ctx)
+        onDebounce = Prefs.getOnDebounceMs(ctx)
+        offDebounce = Prefs.getOffDebounceMs(ctx)
     }
 
-    fun save() {
-        Prefs.saveConfig(ctx, baseUrl = baseUrl, token = token, entityId = entityId)
-        baseUrl = Prefs.getBaseUrl(ctx)
-        AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
+    // Au premier affichage et à chaque retour dans l'application : on recharge les valeurs
+    // (elles ont pu changer depuis le navigateur) et on place le focus sur un bouton.
+    LaunchedEffect(resumeTick) {
+        reload()
+        delay(250)
+        runCatching { firstButton.requestFocus() }
     }
 
     Column(
@@ -129,7 +147,7 @@ private fun SetupScreen(resumeTick: Int) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 40.dp, vertical = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Text(
             "Audio2HA",
@@ -145,29 +163,38 @@ private fun SetupScreen(resumeTick: Int) {
                 primary = true,
                 modifier = Modifier.focusRequester(firstButton),
                 onClick = {
-                    save()
                     if (running) AudioMonitorService.stop(ctx) else AudioMonitorService.start(ctx)
                 },
             )
 
             TvButton(
-                text = if (testing) "Test en cours..." else "Enregistrer et tester",
+                text = if (busy) "Vérification..." else "Appliquer et tester",
                 primary = true,
                 onClick = {
-                    if (testing) return@TvButton
-                    save()
-                    testing = true
-                    testResult = "Test en cours..."
+                    if (busy) return@TvButton
+                    busy = true
+                    message = "Vérification en cours..."
                     scope.launch {
-                        val r = withContext(Dispatchers.IO) { HaClient.ping(baseUrl, token) }
-                        testing = false
-                        testResult = if (r.ok) {
-                            LogStore.ha("Test de connexion réussi", "HTTP ${r.httpCode}")
-                            "OK — Home Assistant répond (HTTP ${r.httpCode})"
-                        } else {
-                            LogStore.ha("Test de connexion échoué", r.shortBody(), error = true)
-                            "Échec : " + (if (r.httpCode > 0) "HTTP ${r.httpCode} " else "") + r.shortBody(120)
+                        val text = withContext(Dispatchers.IO) {
+                            val ping = HaClient.ping(
+                                Prefs.getBaseUrl(ctx),
+                                Prefs.getToken(ctx),
+                                Prefs.getRetryTimeoutSeconds(ctx) * 1000,
+                            )
+                            if (!ping.ok) {
+                                LogStore.ha("Test de connexion échoué", ping.shortBody(), error = true)
+                                return@withContext "Échec : " +
+                                    (if (ping.httpCode > 0) "HTTP ${ping.httpCode} " else "") +
+                                    ping.shortBody(120)
+                            }
+                            LogStore.ha("Test de connexion réussi", "HTTP ${ping.httpCode}")
+                            val report = HaSetup.apply(ctx)
+                            (if (report.ok) "OK — " else "Attention — ") + report.message
                         }
+                        reload()
+                        busy = false
+                        message = text
+                        AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
                     }
                 },
             )
@@ -188,7 +215,7 @@ private fun SetupScreen(resumeTick: Int) {
             TvButton(text = "Jouer un son de test", onClick = { TestTone.play() })
         }
 
-        testResult?.let {
+        message?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.bodyMedium,
@@ -197,40 +224,147 @@ private fun SetupScreen(resumeTick: Int) {
             )
         }
 
-        Text(
-            "Configuration — bien plus simple à saisir depuis un navigateur qu'à la télécommande.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        TvSection("Connexion à Home Assistant") {
+            TvTextField(
+                label = "Adresse de Home Assistant",
+                value = baseUrl,
+                hint = "Les noms .local ne sont pas résolus par Android TV : préférez l'adresse IP.",
+                onValueChange = {
+                    Prefs.saveConfig(ctx, baseUrl = it)
+                    baseUrl = Prefs.getBaseUrl(ctx)
+                },
+            )
+            TvTextField(
+                label = "Token d'accès longue durée",
+                value = token,
+                shortened = true,
+                hint = "Plus simple à coller depuis le navigateur : ${serverUrl ?: "serveur local indisponible"}",
+                onValueChange = {
+                    Prefs.saveConfig(ctx, token = it)
+                    token = Prefs.getToken(ctx)
+                },
+            )
+        }
 
-        OutlinedTextField(
-            value = baseUrl,
-            onValueChange = { baseUrl = it },
-            label = { Text("Adresse de Home Assistant") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = token,
-            onValueChange = { token = it },
-            label = { Text("Token d'accès longue durée") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = entityId,
-            onValueChange = { entityId = it },
-            label = { Text("Entité Home Assistant") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        TvSection("Entité publiée") {
+            TvTextField(
+                label = "Nom du capteur",
+                value = sensorName,
+                hint = "Nom affiché dans Home Assistant.",
+                onValueChange = {
+                    Prefs.saveConfig(ctx, friendlyName = it)
+                    sensorName = Prefs.getFriendlyName(ctx)
+                },
+            )
+            TvPickerField(
+                label = "Type d'entité",
+                value = entityKind.label,
+                options = EntityKind.entries.toList(),
+                optionLabel = { it.label },
+                hint = "Seul l'interrupteur virtuel peut être rangé dans une pièce.",
+                onSelect = {
+                    Prefs.setEntityKind(ctx, it)
+                    entityKind = it
+                    entityId = Prefs.getEntityId(ctx)
+                },
+            )
+            TvTextField(
+                label = "Identifiant de l'entité",
+                value = entityId,
+                onValueChange = {
+                    Prefs.setEntityId(ctx, it)
+                    entityId = Prefs.getEntityId(ctx)
+                },
+            )
+            TvPickerField(
+                label = "Pièce",
+                value = areaName.ifEmpty { "Aucune pièce" },
+                options = listOf(HaArea("", "Aucune pièce")) + areas,
+                optionLabel = { it.name },
+                hint = "Appliquez ensuite avec « Appliquer et tester ».",
+                emptyMessage = "Liste indisponible : vérifiez l'adresse et le token.",
+                onOpen = {
+                    scope.launch {
+                        val loaded = withContext(Dispatchers.IO) {
+                            HaSetup.listAreas(ctx).getOrElse { emptyList() }
+                        }
+                        if (loaded.isNotEmpty()) areas = loaded
+                    }
+                },
+                onSelect = {
+                    Prefs.setArea(ctx, it.id, if (it.id.isEmpty()) "" else it.name)
+                    areaName = Prefs.getAreaName(ctx)
+                },
+            )
+        }
 
-        Text(
-            "L'entité est créée automatiquement côté Home Assistant : elle passe à « on » " +
-                "quand un son est joué et à « off » sinon.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        TvSection("Comportement") {
+            TvToggleField(
+                label = "Lancer la détection au démarrage de la TV",
+                checked = startOnBoot,
+                hint = "La surveillance redémarre seule après un redémarrage.",
+                onCheckedChange = {
+                    Prefs.setStartOnBoot(ctx, it)
+                    startOnBoot = it
+                },
+            )
+            TvPickerField(
+                label = "Si le réseau est indisponible",
+                value = offlineMode.label,
+                options = OfflineMode.entries.toList(),
+                optionLabel = { it.label },
+                onSelect = {
+                    Prefs.setOfflineMode(ctx, it)
+                    offlineMode = it
+                    AudioMonitorService.send(ctx, AudioMonitorService.ACTION_CONFIG_CHANGED)
+                },
+            )
+            TvTextField(
+                label = "Nombre de nouvelles tentatives",
+                value = retryCount.toString(),
+                numeric = true,
+                hint = "Réessais après un envoi refusé par Home Assistant (0 = aucun).",
+                onValueChange = {
+                    it.trim().toIntOrNull()?.let { v ->
+                        Prefs.setRetryCount(ctx, v)
+                        retryCount = Prefs.getRetryCount(ctx)
+                    }
+                },
+            )
+            TvTextField(
+                label = "Délai d'attente par tentative (secondes)",
+                value = retryTimeout.toString(),
+                numeric = true,
+                onValueChange = {
+                    it.trim().toIntOrNull()?.let { v ->
+                        Prefs.setRetryTimeoutSeconds(ctx, v)
+                        retryTimeout = Prefs.getRetryTimeoutSeconds(ctx)
+                    }
+                },
+            )
+            TvTextField(
+                label = "Délai avant « son démarré » (ms)",
+                value = onDebounce.toString(),
+                numeric = true,
+                onValueChange = {
+                    it.trim().toLongOrNull()?.let { v ->
+                        Prefs.setOnDebounceMs(ctx, v.coerceIn(0, 30_000))
+                        onDebounce = Prefs.getOnDebounceMs(ctx)
+                    }
+                },
+            )
+            TvTextField(
+                label = "Délai avant « son arrêté » (ms)",
+                value = offDebounce.toString(),
+                numeric = true,
+                onValueChange = {
+                    it.trim().toLongOrNull()?.let { v ->
+                        Prefs.setOffDebounceMs(ctx, v.coerceIn(0, 60_000))
+                        offDebounce = Prefs.getOffDebounceMs(ctx)
+                    }
+                },
+            )
+        }
     }
 }
 

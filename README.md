@@ -19,7 +19,11 @@ Quand un son démarre, l'entité passe à `on` ; quand il s'arrête, elle passe 
 - L'état est renvoyé toutes les 5 minutes, car les entités créées via l'API REST
   disparaissent quand Home Assistant redémarre.
 
-## Publication vers Home Assistant
+## Type d'entité, et pourquoi la pièce
+
+Deux modes, choisis dans l'application :
+
+**Capteur binaire (`binary_sensor`)** — par défaut. L'état est poussé par l'API REST :
 
 ```
 POST {url}/api/states/{entity_id}
@@ -28,7 +32,21 @@ Authorization: Bearer {token}
 {"state": "on", "attributes": {"friendly_name": "...", "device_class": "sound", ...}}
 ```
 
-L'entité n'a pas besoin d'exister au préalable : l'API la crée.
+L'entité n'a pas besoin d'exister au préalable, l'API la crée. En revanche elle n'entre
+pas dans le registre d'entités de Home Assistant : elle **ne peut pas être rangée dans une
+pièce**, ni renommée depuis l'interface (`config/entity_registry/update` répond
+« Entity not found »).
+
+**Interrupteur virtuel (`input_boolean`)** — l'application crée un helper via l'API
+WebSocket (`input_boolean/create`), puis le range dans la pièce choisie
+(`config/entity_registry/update`). C'est une vraie entité enregistrée : pièce, renommage
+et personnalisation fonctionnent. L'état est publié avec les services
+`input_boolean.turn_on` / `turn_off`.
+
+La liste des pièces est lue dans Home Assistant (`config/area_registry/list`) et proposée
+dans un menu déroulant, dans l'application comme dans la page web. Le client WebSocket est
+écrit à la main (`HaWebSocket.kt`) pour éviter une dépendance : l'API REST ne sait ni
+lister les pièces, ni créer un helper, ni affecter une pièce.
 
 ## Configuration
 
@@ -54,6 +72,30 @@ Autres points d'entrée du serveur :
 | `/status`  | JSON : configuration, surveillance active, état du son            |
 | `/players` | JSON de diagnostic : ce que l'application voit via `AudioManager`  |
 | `/tone`    | joue un bip de test sur la TV                                     |
+| `/offline?seconds=30` | fait croire à l'application qu'il n'y a plus de réseau, pour tester le comportement hors-ligne |
+
+## Réglages
+
+| Réglage | Par défaut | Rôle |
+|---|---|---|
+| Nom du capteur | modèle de la TV | nom affiché dans Home Assistant |
+| Type d'entité | `binary_sensor` | voir ci-dessus |
+| Pièce | aucune | uniquement avec l'interrupteur virtuel |
+| Lancer au démarrage de la TV | désactivé | relance la détection après un redémarrage |
+| Si le réseau est indisponible | ignorer l'envoi | ou conserver l'état et le publier au retour du réseau |
+| Nombre de nouvelles tentatives | 3 | réessais après une réponse autre que 2xx |
+| Délai d'attente par tentative | 8 s | délai de connexion et de lecture |
+| Délai avant « son démarré » | 500 ms | filtre les bips d'interface |
+| Délai avant « son arrêté » | 3 s | évite le clignotement entre deux pistes |
+
+En mode « attendre le retour du réseau », c'est le **dernier** état connu qui est publié au
+retour, pas la suite des changements manqués.
+
+## Saisie à la télécommande
+
+Le clavier virtuel ne s'ouvre pas au simple passage du focus sur un champ : il faut valider
+par « OK », ce qui ouvre une fenêtre de saisie dédiée. Sans cela le clavier capte les
+touches directionnelles dès l'arrivée sur l'écran.
 
 ## Écran des journaux
 
@@ -81,3 +123,6 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Le token est stocké en clair dans les `SharedPreferences` de l'application, et le serveur
   de configuration local n'est pas protégé par mot de passe : à réserver à un réseau de
   confiance.
+- Le lancement au démarrage n'a pas pu être vérifié par un vrai redémarrage (l'ADB de la TV
+  passe par le WiFi) : le receveur est bien enregistré pour `BOOT_COMPLETED`, mais le
+  comportement reste à confirmer après un redémarrage réel.

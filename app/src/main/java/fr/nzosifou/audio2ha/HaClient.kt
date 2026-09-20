@@ -4,7 +4,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import javax.net.ssl.HttpsURLConnection
 
 /** Résultat d'un appel à l'API Home Assistant. */
 data class HaResult(
@@ -20,47 +19,75 @@ data class HaResult(
 /** Petit client REST pour l'API Home Assistant (pas de dépendance externe). */
 object HaClient {
 
-    private const val CONNECT_TIMEOUT = 5000
-    private const val READ_TIMEOUT = 8000
+    private const val DEFAULT_TIMEOUT_MS = 8000
 
-    /** POST /api/states/<entity_id> : crée ou met à jour l'entité. */
+    /**
+     * Publie l'état d'un `binary_sensor` : `POST /api/states/<entity_id>`.
+     * L'entité est créée par Home Assistant si elle n'existe pas.
+     */
     fun postState(
         baseUrl: String,
         token: String,
         entityId: String,
         state: String,
         attributes: Map<String, Any?>,
+        timeoutMs: Int = DEFAULT_TIMEOUT_MS,
     ): HaResult {
         val payload = JSONObject().apply {
             put("state", state)
             put("attributes", JSONObject(attributes.filterValues { it != null }))
         }
-        return request("POST", "$baseUrl/api/states/$entityId", token, payload.toString())
+        return request("POST", "$baseUrl/api/states/$entityId", token, payload.toString(), timeoutMs)
     }
 
-    /** GET /api/ : vérifie l'URL et le token. */
-    fun ping(baseUrl: String, token: String): HaResult =
-        request("GET", "$baseUrl/api/", token, null)
+    /** Appelle un service, par exemple `input_boolean.turn_on`. */
+    fun callService(
+        baseUrl: String,
+        token: String,
+        domain: String,
+        service: String,
+        entityId: String,
+        timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+    ): HaResult {
+        val payload = JSONObject().put("entity_id", entityId)
+        return request(
+            "POST",
+            "$baseUrl/api/services/$domain/$service",
+            token,
+            payload.toString(),
+            timeoutMs,
+        )
+    }
+
+    /** Lit l'état d'une entité ; un code 404 signifie qu'elle n'existe pas encore. */
+    fun getState(
+        baseUrl: String,
+        token: String,
+        entityId: String,
+        timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+    ): HaResult = request("GET", "$baseUrl/api/states/$entityId", token, null, timeoutMs)
+
+    /** `GET /api/` : vérifie l'URL et le token. */
+    fun ping(baseUrl: String, token: String, timeoutMs: Int = DEFAULT_TIMEOUT_MS): HaResult =
+        request("GET", "$baseUrl/api/", token, null, timeoutMs)
 
     private fun request(
         method: String,
         url: String,
         token: String,
         body: String?,
+        timeoutMs: Int,
     ): HaResult {
         val start = System.currentTimeMillis()
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
-                connectTimeout = CONNECT_TIMEOUT
-                readTimeout = READ_TIMEOUT
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
                 instanceFollowRedirects = true
                 setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("Accept", "application/json")
-                if (this is HttpsURLConnection) {
-                    // rien de particulier : on garde la validation TLS par défaut
-                }
                 if (body != null) {
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json")
@@ -72,8 +99,7 @@ object HaClient {
             val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
             HaResult(code in 200..299, code, text, System.currentTimeMillis() - start)
         } catch (e: IOException) {
-            val hint = describe(e, url)
-            HaResult(false, -1, hint, System.currentTimeMillis() - start)
+            HaResult(false, -1, describe(e, url), System.currentTimeMillis() - start)
         } catch (e: Exception) {
             HaResult(false, -1, e.toString(), System.currentTimeMillis() - start)
         } finally {

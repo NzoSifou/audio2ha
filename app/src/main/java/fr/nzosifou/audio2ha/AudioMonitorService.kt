@@ -8,6 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkRequest
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
@@ -16,7 +19,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Service de premier plan qui surveille la lecture audio de la TV via
@@ -61,7 +63,11 @@ class AudioMonitorService : Service() {
     private lateinit var worker: Handler
 
     private val network = Executors.newSingleThreadExecutor()
-    private val seq = AtomicInteger(0)
+
+    /** État en attente d'un réseau, quand le mode hors-ligne est « attendre ». */
+    @Volatile
+    private var deferredState: Boolean? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     /** Dernier état confirmé (après anti-rebond) ; null tant que rien n'a été publié. */
     private var committedPlaying: Boolean? = null
@@ -80,8 +86,22 @@ class AudioMonitorService : Service() {
     private val poller = object : Runnable {
         override fun run() {
             evaluate(audioManager.activePlaybackConfigurations, "poll")
+            retryDeferred()
             worker.postDelayed(this, POLL_MS)
         }
+    }
+
+    /**
+     * Republie l'état mis de côté pendant une coupure réseau. Le rappel de
+     * [ConnectivityManager] ne se déclenche pas dans tous les cas (réseau jamais perdu
+     * du point de vue du système, retour manqué…), ce relevé sert de filet.
+     */
+    private fun retryDeferred() {
+        val pending = deferredState ?: return
+        if (!HaPublisher.isOnline(this)) return
+        deferredState = null
+        LogStore.ha("Réseau de nouveau disponible : publication de l'état en attente")
+        push(pending, forced = true)
     }
 
     private val heartbeat = object : Runnable {
@@ -139,6 +159,7 @@ class AudioMonitorService : Service() {
                 initialEvaluate()
                 restartConfigServer()
             }
+            registerNetworkCallback()
             worker.postDelayed(poller, POLL_MS)
             worker.postDelayed(heartbeat, HEARTBEAT_MS)
         }
@@ -151,6 +172,7 @@ class AudioMonitorService : Service() {
             worker.removeCallbacksAndMessages(null)
             LogStore.audio("Surveillance arrêtée")
         }
+        unregisterNetworkCallback()
         MonitorStatus.setRunning(false)
         Prefs.setMonitorEnabled(this, false)
         workerThread.quitSafely()
@@ -249,65 +271,71 @@ class AudioMonitorService : Service() {
     // ------------------------------------------------------------ Home Assistant
 
     private fun push(playing: Boolean, forced: Boolean = false, heartbeat: Boolean = false) {
-        val ctx = applicationContext
-        val baseUrl = Prefs.getBaseUrl(ctx)
-        val token = Prefs.getToken(ctx)
-        val entityId = Prefs.getEntityId(ctx)
-
         goForeground(playing)
-
-        if (baseUrl.isBlank() || token.isBlank()) {
-            LogStore.ha("Envoi ignoré : configuration incomplète", "URL ou token manquant", error = true)
-            MonitorStatus.setLastSync("Configuration incomplète")
-            return
-        }
-
-        val state = if (playing) "on" else "off"
-        val id = seq.incrementAndGet()
-        val prefix = when {
+        val label = when {
             heartbeat -> "Rafraîchissement périodique"
             forced -> "Envoi forcé"
             else -> "Envoi"
         }
-        LogStore.ha("$prefix -> $state", "$entityId sur $baseUrl")
-
         network.execute {
-            var attempt = 0
-            while (attempt < 3) {
-                attempt++
-                val result = HaClient.postState(
-                    baseUrl = baseUrl,
-                    token = token,
-                    entityId = entityId,
-                    state = state,
-                    attributes = mapOf(
-                        "friendly_name" to Prefs.getFriendlyName(ctx),
-                        "device_class" to "sound",
-                        "source" to "Audio2HA",
-                        "device" to (Build.MODEL ?: "Android TV"),
-                    ),
-                )
-                if (result.ok) {
-                    LogStore.ha(
-                        "OK ${result.httpCode} — état $state accepté",
-                        "en ${result.durationMs} ms" + (if (attempt > 1) ", tentative $attempt" else ""),
-                    )
-                    MonitorStatus.setLastSync("$state envoyé (HTTP ${result.httpCode})")
-                    return@execute
+            when (HaPublisher.publish(applicationContext, playing, label)) {
+                PublishOutcome.SENT, PublishOutcome.FAILED -> deferredState = null
+
+                PublishOutcome.NO_NETWORK -> when (Prefs.getOfflineMode(applicationContext)) {
+                    OfflineMode.DROP -> {
+                        LogStore.ha(
+                            "Envoi ignoré : aucun réseau disponible",
+                            "état " + (if (playing) "on" else "off") + " abandonné",
+                            error = true,
+                        )
+                        MonitorStatus.setLastSync("Pas de réseau — envoi ignoré")
+                    }
+
+                    OfflineMode.WAIT -> {
+                        deferredState = playing
+                        LogStore.ha(
+                            "Aucun réseau : envoi mis en attente",
+                            "état " + (if (playing) "on" else "off") +
+                                ", sera publié au retour du réseau",
+                            error = true,
+                        )
+                        MonitorStatus.setLastSync("En attente du réseau")
+                    }
                 }
-                val codeLabel = if (result.httpCode > 0) "HTTP ${result.httpCode}" else "réseau"
-                val fatal = result.httpCode in 400..499
-                LogStore.ha(
-                    "Échec ($codeLabel) — état $state" + if (fatal || attempt == 3) "" else ", nouvelle tentative",
-                    result.shortBody(),
-                    error = true,
-                )
-                MonitorStatus.setLastSync("Échec $codeLabel")
-                if (fatal) return@execute
-                Thread.sleep(1500L * attempt)
-                if (seq.get() != id) return@execute // un envoi plus récent a pris le relais
             }
         }
+    }
+
+    // ------------------------------------------------------------------- réseau
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(net: Network) {
+                val pending = deferredState ?: return
+                deferredState = null
+                LogStore.ha("Réseau revenu : publication de l'état en attente")
+                worker.post { push(pending, forced = true) }
+            }
+        }
+        runCatching {
+            cm.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build(),
+                callback,
+            )
+            networkCallback = callback
+        }.onFailure {
+            LogStore.ha("Surveillance du réseau indisponible", it.toString(), error = true)
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        networkCallback?.let { cb -> runCatching { cm?.unregisterNetworkCallback(cb) } }
+        networkCallback = null
     }
 
     // ------------------------------------------------------------- notification
