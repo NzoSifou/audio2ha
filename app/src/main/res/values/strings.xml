@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Audio2HA</string>
+    <string name="logs_title">Journaux</string>
 </resources>
