@@ -1,34 +1,29 @@
 package fr.nzosifou.audio2ha.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.darkColorScheme
-import androidx.tv.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF6FA8FF),
+    onPrimary = Color(0xFF00243F),
+    secondary = Color(0xFF9BE8B4),
+    background = Color(0xFF12141A),
+    onBackground = Color(0xFFE8EAF0),
+    surface = Color(0xFF1C1F28),
+    onSurface = Color(0xFFE8EAF0),
+    surfaceVariant = Color(0xFF262A35),
+    onSurfaceVariant = Color(0xFFB6BCCB),
+    error = Color(0xFFFF8A8A),
+)
+
 @Composable
-fun Audio2HATheme(
-    isInDarkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit,
-) {
-    val colorScheme = if (isInDarkTheme) {
-        darkColorScheme(
-            primary = Purple80,
-            secondary = PurpleGrey80,
-            tertiary = Pink80
-        )
-    } else {
-        lightColorScheme(
-            primary = Purple40,
-            secondary = PurpleGrey40,
-            tertiary = Pink40
-        )
-    }
+fun Audio2HATheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
+        colorScheme = DarkColors,
+        typography = Typography(),
+        content = content,
     )
 }
