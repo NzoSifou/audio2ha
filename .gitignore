@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Signature des APK de release : ne jamais versionner
+*.jks
+keystore.properties
