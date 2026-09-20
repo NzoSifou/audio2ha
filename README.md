@@ -124,11 +124,36 @@ redémarrage de l'application.
 
 ## Installation
 
+L'APK de la dernière version est publié dans les
+[releases](https://github.com/NzoSifou/audio2ha/releases/latest) ; ce lien pointe toujours
+vers le fichier le plus récent :
+
+```
+https://github.com/NzoSifou/audio2ha/releases/latest/download/Audio2HA.apk
+```
+
+Les trois méthodes d'installation (Downloader, clé USB, ADB) sont détaillées dans
+[RELEASE.md](RELEASE.md).
+
+### Compiler soi-même
+
 ```bash
 ./gradlew :app:assembleDebug
 adb connect <ip-de-la-tv>:5555
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Pour un APK de release signé, créez `keystore.properties` à la racine (hors dépôt) :
+
+```properties
+storeFile=audio2ha-release.jks
+storePassword=...
+keyAlias=audio2ha
+keyPassword=...
+```
+
+puis `./gradlew :app:assembleRelease`. Sans ce fichier, l'APK de release sort non signé,
+donc non installable.
 
 ## Limites connues
 
