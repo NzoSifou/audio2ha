@@ -124,16 +124,35 @@ redémarrage de l'application.
 
 ## Installation
 
-L'APK de la dernière version est publié dans les
-[releases](https://github.com/NzoSifou/audio2ha/releases/latest) ; ce lien pointe toujours
-vers le fichier le plus récent :
+### Avec Downloader — le plus simple sur une TV
+
+L'application s'installe avec [Downloader](https://www.aftvnews.com/downloader/)
+(AFTVnews), à installer depuis le Play Store de la TV. Dans son champ URL, saisissez :
+
+```
+5670916
+```
+
+ou, si vous préférez une adresse complète :
+
+```
+http://aftv.news/5670916
+```
+
+Ce code pointe toujours vers l'APK de la dernière version : il reste valable à chaque
+nouvelle publication, inutile d'en changer.
+
+Au premier lancement, Android demande d'autoriser Downloader à installer des applications
+inconnues : acceptez, revenez en arrière, puis relancez l'installation.
+
+### Autres méthodes
+
+Clé USB et ADB sont détaillés dans [RELEASE.md](RELEASE.md). Pour un téléchargement direct,
+ce lien pointe toujours vers le fichier le plus récent :
 
 ```
 https://github.com/NzoSifou/audio2ha/releases/latest/download/Audio2HA.apk
 ```
-
-Les trois méthodes d'installation (Downloader, clé USB, ADB) sont détaillées dans
-[RELEASE.md](RELEASE.md).
 
 ### Compiler soi-même
 

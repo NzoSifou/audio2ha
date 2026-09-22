@@ -17,16 +17,18 @@ une application sur une TV, sans PC ni clé USB.
 
 1. Sur la TV, installez **Downloader** depuis le Play Store.
 2. Ouvrez Downloader, onglet **Home**, champ URL.
-3. Saisissez le code court AFTVnews (voir le tableau ci-dessous), ou collez l'URL
-   complète de l'APK.
+3. Saisissez le code court **5670916** (ou l'adresse `http://aftv.news/5670916`).
 4. **Download** : le téléchargement démarre, puis l'installation est proposée.
 5. À la première installation, Android demande d'autoriser Downloader à installer des
    applications inconnues — acceptez, puis revenez en arrière et relancez l'installation.
 6. Une fois installée, supprimez le fichier APK quand Downloader le propose.
 
-| Version | Code Downloader |
-|---------|-----------------|
-| Dernière version | _à compléter_ |
+| Code Downloader | Adresse équivalente |
+|-----------------|---------------------|
+| `5670916` | `http://aftv.news/5670916` |
+
+Ce code pointe vers l'APK de la dernière version : il reste valable à chaque nouvelle
+publication.
 
 ## Clé USB
 
